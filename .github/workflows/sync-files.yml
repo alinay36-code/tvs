@@ -11,152 +11,79 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
+    
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-          persist-credentials: true
-
-      - name: 设置 Git 配置
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-      - name: 下载并解压文件（更严格的错误处理）
-        run: |
-          set -euo pipefail
-
-          URL="https://raw.githubusercontent.com/PizazzGY/NewTVBox/refs/heads/main/%E5%8D%95%E7%BA%BF%E8%B7%AF.zip"
-          OUT="data.zip"
-          TMPDIR="tmp"
-
-          echo "开始下载文件：$URL"
-          # 使用 curl 获取状态码并写入文件
-          http_status=$(curl -sSL -w "%{http_code}" -o "${OUT}" "$URL" || true)
-          if [ -z "$http_status" ] || [ "${http_status:0:1}" != "2" ]; then
-            echo "下载失败，HTTP 状态码: $http_status"
-            rm -f "${OUT}"
+    - name: 检出代码
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+        persist-credentials: true
+    
+    - name: 设置Git配置
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+    
+    - name: 下载并解压文件
+      run: |
+        echo "开始下载文件..."
+        
+        # 下载文件（按需替换 URL）
+        curl -L -o "data.zip" "https://raw.githubusercontent.com/PizazzGY/NewTVBox/refs/heads/main/%E5%8D%95%E7%BA%BF%E8%B7%AF.zip"
+        
+        # 检查下载是否成功
+        if [ ! -f "data.zip" ]; then
+          echo "下载失败"
+          exit 1
+        fi
+        
+        echo "下载成功，文件大小: $(ls -lh data.zip | awk '{print $5}')"
+        echo "开始解压到临时目录 tmp ..."
+        mkdir -p tmp
+        unzip -o "data.zip" -d tmp
+        echo "解压完成，查找 tvbox 目录..."
+        
+        # 优先使用预期路径 tmp/TVBoxOSC/tvbox
+        if [ -d "tmp/TVBoxOSC/tvbox" ]; then
+          echo "找到 tmp/TVBoxOSC/tvbox，复制到仓库根目录..."
+          rsync -a tmp/TVBoxOSC/tvbox/ .
+        else
+          # 若预期路径不存在，则在 tmp 中查找名为 tvbox 的目录
+          tvbox_dir=$(find tmp -type d -name tvbox | head -n1 || true)
+          if [ -n "$tvbox_dir" ]; then
+            echo "找到 tvbox 目录：$tvbox_dir，复制到仓库根目录..."
+            rsync -a "$tvbox_dir"/. .
+          else
+            echo "未找到 tvbox 目录，列出 tmp 内容以供调试:"
+            ls -R tmp
+            rm -rf tmp data.zip
             exit 1
           fi
-          if [ ! -s "${OUT}" ]; then
-            echo "下载文件为空或不存在"
-            rm -f "${OUT}"
-            exit 1
-          fi
-          echo "下载成功，文件大小: $(ls -lh "${OUT}" | awk '{print $5}')"
+        fi
 
-          echo "开始解压到临时目录 ${TMPDIR} ..."
-          rm -rf "${TMPDIR}"
-          mkdir -p "${TMPDIR}"
-          unzip -o "${OUT}" -d "${TMPDIR}"
-          echo "解压完成，查找 tvbox 目录..."
-
-          # 优先使用预期路径 tmp/TVBoxOSC/tvbox
-          if [ -d "${TMPDIR}/TVBoxOSC/tvbox" ]; then
-            echo "找到 ${TMPDIR}/TVBoxOSC/tvbox，复制到仓库根目录..."
-            rsync -a "${TMPDIR}/TVBoxOSC/tvbox/" .
-          else
-            # 若预期路径不存在，则在 tmp 中查找名为 tvbox 的目录
-            tvbox_dir=$(find "${TMPDIR}" -type d -name tvbox | head -n1 || true)
-            if [ -n "$tvbox_dir" ]; then
-              echo "找到 tvbox 目录：$tvbox_dir，复制到仓库根目录..."
-              rsync -a "${tvbox_dir}/." .
-            else
-              echo "未找到 tvbox 目录，列出 ${TMPDIR} 内容以供调试:"
-              ls -R "${TMPDIR}"
-              rm -rf "${TMPDIR}" "${OUT}"
-              exit 1
-            fi
-          fi
-
-          echo "复制完成，显示仓库根目录预览："
-          ls -la
-          echo "清理临时文件..."
-          rm -rf "${TMPDIR}" "${OUT}"
-          echo "完成"
-
-      - name: 检查更改
-        id: check-changes
-        run: |
-          # 注意：不使用 set -e 以便手工处理状态
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "检测到文件更改"
-            echo "has-changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "没有检测到文件更改"
-            echo "has-changes=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: 提交更改
-        if: steps.check-changes.outputs['has-changes'] == 'true'
-        run: |
-          set -euo pipefail
-          echo "提交更改..."
-          git add .
-          # 如果没有变化 git commit 会返回非零，这里 ensure 有变化才走到这一步
-          git commit -m "自动更新 (来自 TVBoxOSC/tvbox): $(date '+%Y-%m-%d %H:%M:%S')"
-          git push origin HEAD:main
-          echo "更改已提交"
-
-      - name: 触发 Webhook（始终触发）
-        if: always()
-        env:
-          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          HAS_CHANGES_STR: ${{ steps.check-changes.outputs['has-changes'] }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${WEBHOOK_URL:-}" ]; then
-            echo "未配置 WEBHOOK_URL，跳过触发 webhook。"
-            exit 0
-          fi
-
-          # 将字符串 "true"/"false" 转为 JSON 布尔值
-          case "${HAS_CHANGES_STR:-false}" in
-            "true"|"True"|"TRUE")
-              has_changes_json=true
-              ;;
-            *)
-              has_changes_json=false
-              ;;
-          esac
-
-          # 获取最新 commit SHA（如果存在）
-          commit_sha="$(git rev-parse --verify --short HEAD 2>/dev/null || echo null)"
-
-          payload=$(cat <<EOF
-{"repository":"${GITHUB_REPOSITORY}","ref":"${GITHUB_REF}","pusher":"${GITHUB_ACTOR}","has_changes":${has_changes_json},"commit":"${commit_sha}","timestamp":"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"}
-EOF
-)
-
-          echo "Payload: $payload"
-
-          # 如果提供了 WEBHOOK_SECRET，则用 HMAC-SHA256 签名（header 名称 X-Hub-Signature-256）
-          if [ -n "${WEBHOOK_SECRET:-}" ]; then
-            sig="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')"
-            echo "使用签名头 X-Hub-Signature-256: ${sig}"
-            http_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-              -H "Content-Type: application/json" \
-              -H "X-Hub-Signature-256: $sig" \
-              -d "$payload" "$WEBHOOK_URL" || true)
-          else
-            http_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-              -H "Content-Type: application/json" \
-              -d "$payload" "$WEBHOOK_URL" || true)
-          fi
-
-          echo "Webhook 返回状态码: $http_status"
-          if [ -n "$http_status" ] && [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ]; then
-            echo "Webhook 触发成功"
-          else
-            echo "Webhook 触发失败（状态码 $http_status）"
-            # 如果你希望 webhook 失败使 job 失败，可取消下一行注释
-            # exit 1
-          fi
+        echo "复制完成，显示仓库根目录预览："
+        ls -la
+        echo "清理临时文件..."
+        rm -rf tmp data.zip
+        echo "完成"
+    
+    - name: 检查更改
+      id: check-changes
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "检测到文件更改"
+          echo "has-changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "没有检测到文件更改"
+          echo "has-changes=false" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: 提交更改
+      if: steps.check-changes.outputs.has-changes == 'true'
+      run: |
+        echo "提交更改..."
+        git add .
+        git commit -m "自动更新 (来自 TVBoxOSC/tvbox): $(date '+%Y-%m-%d %H:%M:%S')"
+        git push origin HEAD:main
+        echo "更改已提交"
