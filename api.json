@@ -1,7 +1,7 @@
 {
     "spider": "./spider.jar",
     "wallpaper": "http://127.0.0.1:9978/proxy?do=wallpaper",
-    "logo": "http://127.0.0.1:9978/file/TVBox/logo.png",
+    "logo": "http://127.0.0.1:9978/file/TVBox/",
     "sites": [
         {
             "key": "豆瓣",
@@ -2077,4 +2077,5 @@
     "ads": [
         "static-mozai.4gtv.tv"
     ]
+
 }
