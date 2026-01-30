@@ -1,1 +1,0 @@
-curl -s -H "Authorization: token ${PAT_PUSH}" https://api.github.com/user
