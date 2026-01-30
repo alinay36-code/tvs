@@ -111,6 +111,40 @@ jobs:
         rm -rf tmp data.zip
         echo "下载并复制完成"
 
+    - name: Debug: 验证 PAT 有效性（不打印 token）
+      if: steps.check.outputs.has-changes == 'true'
+      env:
+        PAT_PUSH: ${{ secrets.PAT_PUSH }}
+      run: |
+        # 检查 secret 是否存在
+        if [ -z "${PAT_PUSH}" ]; then
+          echo "ERROR: secrets.PAT_PUSH 为空，请在仓库 Settings → Secrets → Actions 添加 PAT_PUSH。"
+          exit 1
+        fi
+
+        echo "正在验证 PAT（不会在日志中打印 token 本体）..."
+        resp=$(curl -s -H "Authorization: token ${PAT_PUSH}" https://api.github.com/user || true)
+
+        # 解析 login（优先用 jq）
+        if command -v jq >/dev/null 2>&1; then
+          login=$(echo "$resp" | jq -r .login 2>/dev/null || echo "")
+        else
+          login=$(printf '%s' "$resp" | grep -o '"login"[[:space:]]*:[[:space:]]*"[^"]\+"' | head -n1 | sed -E 's/.*"login"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || echo "")
+        fi
+
+        if [ -z "$login" ] || [ "$login" = "null" ]; then
+          echo "ERROR: PAT 无效或权限不足。API 返回："
+          echo "$resp"
+          exit 1
+        fi
+
+        echo "PAT 验证通过，所属用户: $login"
+
+        # 显示当前 git remote/status/log（不显示 token）
+        git remote -v
+        git status --porcelain
+        git log -1 --pretty=fuller
+
     - name: 使用 PAT 更新 last_synced 文件并推送更改（仅在上游变更时）
       if: steps.check.outputs.has-changes == 'true'
       env:
